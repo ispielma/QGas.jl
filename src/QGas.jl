@@ -9,11 +9,11 @@ module QGas
 
     include("AtomicConstants.jl")
 
-    include("FileIO.jl")
-
     include("NumericalTools/NumericalTools.jl")
 
     include("Simulation/Simulation.jl")
+
+    include("FileIO.jl")
 
     # Check to see if this is being run from the command line
     if abspath(PROGRAM_FILE) == @__FILE__

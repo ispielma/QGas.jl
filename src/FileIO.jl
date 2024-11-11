@@ -1,51 +1,130 @@
 module FileIO
 
+import ..NumericalTools.ImageProcessing as ImProc
+
 import HDF5
 import Format
+import LazyGrids
+import FFTW
+
+
+"""
+    A helper function that returns a range that always includes zero.  Note that I need to do an even / odd check
+"""
+_range_with_zero(npnt::Integer, dx) = (npnt % 2 == 0 ? range(-dx*(npnt)/2, dx*(npnt-2)/2, length=npnt) : range(-dx*(npnt-1)/2, dx*(npnt-1)/2, length=npnt) )
+   
 
 #=
- ######   ######## ##    ## ######## ########     ###    ##
-##    ##  ##       ###   ## ##       ##     ##   ## ##   ##
-##        ##       ####  ## ##       ##     ##  ##   ##  ##
-##   #### ######   ## ## ## ######   ########  ##     ## ##
-##    ##  ##       ##  #### ##       ##   ##   ######### ##
-##    ##  ##       ##   ### ##       ##    ##  ##     ## ##
- ######   ######## ##    ## ######## ##     ## ##     ## ########
+#### ##     ##    ###     ######   ########    ########  ########   #######  ########  ######## ########  ######## #### ########  ######
+ ##  ###   ###   ## ##   ##    ##  ##          ##     ## ##     ## ##     ## ##     ## ##       ##     ##    ##     ##  ##       ##    ##
+ ##  #### ####  ##   ##  ##        ##          ##     ## ##     ## ##     ## ##     ## ##       ##     ##    ##     ##  ##       ##
+ ##  ## ### ## ##     ## ##   #### ######      ########  ########  ##     ## ########  ######   ########     ##     ##  ######    ######
+ ##  ##     ## ######### ##    ##  ##          ##        ##   ##   ##     ## ##        ##       ##   ##      ##     ##  ##             ##
+ ##  ##     ## ##     ## ##    ##  ##          ##        ##    ##  ##     ## ##        ##       ##    ##     ##     ##  ##       ##    ##
+#### ##     ## ##     ##  ######   ########    ##        ##     ##  #######  ##        ######## ##     ##    ##    #### ########  ######
 =#
 
 """
-dict_to_h5
+    CameraInfo
 
-recursivly iterates through d and saves contents into the h5 reference
+Describes the physical properties of an imaging system as well as a 
+downsampling factor.
 """
-function dict_to_h5(h5ref::HDF5.H5DataStore, d::Dict{String, Any})
-    for (key, item) in d
+struct CameraInfo{dim}
+    sensor_size::Tuple{Vararg{Int, dim}}
+    pixel_size::Tuple{Vararg{Float64, dim}}
+    magnification::Tuple{Vararg{Float64, dim}}
+    downsample::Tuple{Vararg{Int, dim}}
+    units::Tuple{Vararg{String, dim}}
+    datatype::Type # Type data will be cast to upon loading
+    function CameraInfo(sensor_size, pixel_size, magnification, downsample, units, datatype)
 
-        # Clear out old data
-        if key in keys(h5ref)
-            HDF5.delete_object(h5ref, key)
-        end
+        # Convert sensor size to a Tuple a
+        sensor_size = Tuple(Int(j) for j in sensor_size)
+        dim = length(sensor_size)
 
-        # recurse if needed
-        if typeof(item) == Dict{String, Any}
-            HDF5.create_group(h5ref, key)
+        # Expand singletons to tuples if needed
+        pixel_size = _tuple_length_fix(pixel_size, dim)
+        magnification = _tuple_length_fix(magnification, dim)
+        downsample = _tuple_length_fix(downsample, dim)
+        units = _tuple_length_fix(units, dim; exclude=AbstractString)
 
-            dict_to_h5(h5ref[key], item)
-        else
-            HDF5.write_dataset(h5ref, key, item)
-        end
-        
+        new{dim}(sensor_size, pixel_size, magnification, downsample, units, datatype)
     end
 end
-dict_to_h5(filename::AbstractString, d::Dict{String, Any}) = HDF5.h5open( f -> dict_to_h5(f, d), filename, "cw")
+CameraInfo(sensor_size, pixel_size, magnification, downsample, units) = CameraInfo(sensor_size, pixel_size, magnification, downsample, units, Float64)
 
 """
-h5_to_dict
+_length_fix
 
-Returns a dictionary containg the data from the h5 file
+Helper function to help easily convert singletons to tuples if desired
+
+If we are of type "exclude" it is assumed that the object is a singleton
 """
-h5_to_dict(filename) = HDF5.h5open(h5_to_dict, filename, "r")
-h5_to_dict(h5ref::HDF5.H5DataStore) = read(h5ref)
+function _tuple_length_fix(item, dim; exclude::Type=Nothing)
+    if length(item) == 1 || typeof(item) <: exclude
+        item = Tuple(item for _ in 1:dim)
+    else
+        if length(item) != dim
+            error("length of quantity $(item) not equal to target length $(dim)")
+        end
+        item = Tuple(item[j] for j in 1:dim)
+    end
+    item
+end
+
+
+"""
+ImageInfo
+
+contains the most basic information commonly required to describe images
+""" 
+struct ImageInfo{dim}
+    npnts::Tuple{Vararg{Int, dim}}
+    dxs::Tuple{Vararg{Float64, dim}}
+    dks::Tuple{Vararg{Float64, dim}}
+    units::Tuple{Vararg{String, dim}}
+    index_ranges::Tuple{Vararg{AbstractVector, dim}} # Array of 1D ranges  (to access array elements)
+    ranges::Tuple{Vararg{AbstractVector, dim}} # Array of 1D ranges in real units
+    ndrange::Tuple{Vararg{LazyGrids.AbstractGrid, dim}}  # Mesh-grid like object hm... several types possible here... GridSL vs GridUR
+    k_ranges::Tuple{Vararg{AbstractVector, dim}} # Array of 1D ranges in real units
+    k_ndrange::Tuple{Vararg{LazyGrids.AbstractGrid, dim}}  # Mesh-grid like object hm... several types possible here... GridSL vs GridUR
+end 
+function ImageInfo(
+        npnts::Tuple{Vararg{Int, dim}}, 
+        dxs::Tuple{Vararg{Float64, dim}}, 
+        units::Tuple{Vararg{String, dim}}
+    ) where dim
+
+    dks = (2 * π) ./ (npnts .* dxs) 
+
+    index_ranges = Tuple(1:npnt for npnt in npnts)
+    # Because I always want 0,0 to be in the range I do need to distinguish odd versus even.
+    ranges = Tuple(_range_with_zero(npnt, dx) for (dx, npnt) in zip(dxs, npnts)) 
+    ndrange = LazyGrids.ndgrid(ranges...)
+
+    k_ranges = Tuple(FFTW.fftfreq(n,  (2 * π) / dx) for (n, dx) in zip(npnts, dxs) )
+    k_ndrange = LazyGrids.ndgrid(k_ranges...)
+
+    # return ndrange
+    return ImageInfo{dim}(npnts, dxs, dks, units, index_ranges, ranges, ndrange, k_ranges, k_ndrange)
+end
+function ImageInfo(
+        npnts::Tuple{Vararg{Int, dim}},
+        dxs::Tuple{Vararg{Float64, dim}}) where dim
+    units = Tuple("" for i in 1:dim)
+    return ImageInfo(npnts, dxs, units)
+end
+function ImageInfo(npnts::Tuple{Vararg{Int, dim}}) where dim
+    dxs = Tuple(1.0 for i in 1:dim)
+    return ImageInfo(npnts, dxs)
+end
+function ImageInfo(info::CameraInfo)
+    ImageInfo(
+        info.sensor_size .÷ info.downsample, 
+        info.pixel_size .* info.downsample ./ info.magnification, 
+        info.units);
+end
 
 #=
 ##          ###    ########   ######   ######  ########  #### ########  ########
@@ -75,28 +154,44 @@ LabscriptConfig(experiment_shot_storage, output_folder_format, filename_prefix_f
 """
     LabscriptSequence
 
-Basic information used to define an indificual sequence consisting of a collection of shots
+Basic information used to define an individual sequence consisting of a collection of shots
 """
 struct LabscriptSequence
     script_basename::String
-    year::Integer
-    month::Integer
-    day::Integer
-    index::Integer
-    shots::Vector{Integer}
+    year::Int
+    month::Int
+    day::Int
+    index::Int
+    shots::Vector{Int}
 end 
 # LabscriptSequence(script_basename, year, month, day, index, shots) = LabscriptSequence(script_basename, year, month, day, index, Vector(shots))
 
 """
+    LabscriptImage
+    
+Information needed to a single image from specific camera
+"""
+struct LabscriptImage
+    orientation::AbstractString # Orientation label for saved image.
+    label::AbstractString # Label of saved image (ignore if empty)
+    image::AbstractString # Labscript identifier
+end
+
+"""
     ImageGroup
     
-Information needed to locate a specific image
+A collection of related images
 """
 struct ImageGroup
-    orientation::String # Orientation label for saved image.
-    label::String # Label of saved image (ignore if empty)
-    images::Vector{String} # Identifiers of saved images.
+    images::Dict{Symbol, LabscriptImage} # dictionary where key is the name that will be used in the analysis
+    camera_info::CameraInfo
+    image_info::ImageInfo
+    image_process::Function # Run after loading each image.  Can do anything, but is designed to check for bad data
+    group_process::Function # Run after loading the whole image group.  Can do anything, but is designed to label the group if it contains bad data
 end
+ImageGroup(camera_info, image_process, group_process; kwargs...) = ImageGroup(Dict(k=>v for (k, v) in kwargs), camera_info, ImageInfo(camera_info), image_process, group_process)
+ImageGroup(camera_info; kwargs...) = ImageGroup(camera_info, Identity, Identity; kwargs...)
+
 
 raw"""
     labscript_file
@@ -176,7 +271,7 @@ Helper function
     n_args : Number of arguments
     ks : tuple or vector of strings
 """
-function _fstring_key_to_index(s::String, n_args::Integer, ks)
+function _fstring_key_to_index(s::String, n_args::Int, ks)
     n_ks = length(ks)
     rules = Tuple("{"*string(ks[idx]) => "{"*string(idx+n_args) for idx in 1:n_ks)
     replace(s, rules...)
@@ -229,9 +324,9 @@ Raises:
     Exception: If the image or paths do not exist.
 
 Returns:
-    2-D image array.
+    image array.
 """
-function get_image(h5_file::HDF5.File, orientation::String, label::String, image::String; cast=Float64)
+function get_image(h5_file::HDF5.File, orientation::String, label::String, image::String, datatype::Type)
 
     h5path = "images"
     if ~haskey(h5_file, h5path)
@@ -254,14 +349,12 @@ function get_image(h5_file::HDF5.File, orientation::String, label::String, image
 
     data = HDF5.read(h5_file[h5path][image]) 
 
-    data = ( cast == nothing ? data : convert(Array{cast}, data) )
-
-    return data
+    return convert(Array{datatype}, data)
 end
-function get_image(filename::String, orientation::String, label::String, image::String)
+function get_image(filename::String, args...)
     image = HDF5.h5open(filename, "r") do h5_file
-        get_image(h5_file, orientation, label, image)
-    end    
+        get_image(h5_file, args...)
+    end
     return image
 end
 
@@ -275,33 +368,81 @@ Args:
     image (str): Identifier of saved image.
 
 Returns:
-    Dict of 2-D image arrays.
+    Dict of image arrays.
 """
 function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup})
-    local imagedict = Dict{String, Dict}()
+    local imagedict = Dict{Symbol, Any}()
+    imagedict[:file_name] = splitpath(h5_file.filename)[end]
+
     for imagegroup in imagegroups
-        if ~(imagegroup.orientation in keys(imagedict))
-            imagedict[imagegroup.orientation] = Dict{String, Dict}()
-        end
+        
+        local imagedict_group = Dict{Symbol, Any}()
+        for (name, image) in imagegroup.images
+            img = get_image(h5_file, image.orientation, image.label, image.image, imagegroup.camera_info.datatype)
+            img = imagegroup.image_process(img)
 
-        if ~(imagegroup.label in keys(imagedict[imagegroup.orientation]))
-            imagedict[imagegroup.orientation][imagegroup.label] = Dict{String, Any}()
+            # Place the downsampled image into the dict
+            imagedict_group[name] = ImProc.downsample_array(img, imagegroup.camera_info.downsample)
         end
-
-        for image in imagegroup.images
-            imagedict[imagegroup.orientation][imagegroup.label][image] = get_image(h5_file, imagegroup.orientation, imagegroup.label, image)
-        end
+        imagedict_group = imagegroup.group_process(imagedict_group)
+        merge!(imagedict, imagedict_group)
     end
+
     return imagedict
 end
 function get_images(filename::String, imagegroups::Vector{ImageGroup})
 
     imagedict = HDF5.h5open(filename, "r") do h5_file
-        imagedict = get_images(h5_file, imagegroups)
+        get_images(h5_file, imagegroups)
     end
 
     return imagedict
 end
-get_images(filename::Union{HDF5.File, String}, imagegroup::ImageGroup) = get_images(filename, [imagegroup])
+get_images(filename, imagegroup::ImageGroup) = get_images(filename, [imagegroup])
+
+#=
+ ######   ######## ##    ## ######## ########     ###    ##
+##    ##  ##       ###   ## ##       ##     ##   ## ##   ##
+##        ##       ####  ## ##       ##     ##  ##   ##  ##
+##   #### ######   ## ## ## ######   ########  ##     ## ##
+##    ##  ##       ##  #### ##       ##   ##   ######### ##
+##    ##  ##       ##   ### ##       ##    ##  ##     ## ##
+ ######   ######## ##    ## ######## ##     ## ##     ## ########
+=#
+
+
+"""
+dict_to_h5
+
+recursivly iterates through d and saves contents into the h5 reference
+"""
+function dict_to_h5(h5ref::HDF5.H5DataStore, d::Dict{String, Any})
+    for (key, item) in d
+
+        # Clear out old data
+        if key in keys(h5ref)
+            HDF5.delete_object(h5ref, key)
+        end
+
+        # recurse if needed
+        if typeof(item) == Dict{String, Any}
+            HDF5.create_group(h5ref, key)
+
+            dict_to_h5(h5ref[key], item)
+        else
+            HDF5.write_dataset(h5ref, key, item)
+        end
+        
+    end
+end
+dict_to_h5(filename::AbstractString, d::Dict{String, Any}) = HDF5.h5open( f -> dict_to_h5(f, d), filename, "cw")
+
+"""
+h5_to_dict
+
+Returns a dictionary containg the data from the h5 file
+"""
+h5_to_dict(filename) = HDF5.h5open(h5_to_dict, filename, "r")
+h5_to_dict(h5ref::HDF5.H5DataStore) = read(h5ref)
 
 end # module FileIO

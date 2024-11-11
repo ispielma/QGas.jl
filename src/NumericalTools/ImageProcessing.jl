@@ -10,8 +10,8 @@ module ImageProcessing
     import FFTW
     import Distributions as Dist
     import Statistics as Stat
-    import LazyGrids
     import PaddedViews
+    using DataFrames
 
 
 
@@ -24,58 +24,7 @@ module ImageProcessing
     ##    ##    ##    ##    ##  ##     ## ##    ##    ##    ##    ##
      ######     ##    ##     ##  #######   ######     ##     ######
     =#
-
-    """
-        ImageInfo
-    
-    contains the most basic information requed to interpert cold atom images
-    """ 
-    _filter_width = 1.0 # a default width
-    struct ImageInfo{dim}
-        npnts::Tuple{Vararg{Int64, dim}}
-        dxs::Tuple{Vararg{Float64, dim}}
-        dks::Tuple{Vararg{Float64, dim}}
-        units::Tuple{Vararg{String, dim}}
-        index_ranges::Tuple{Vararg{AbstractVector, dim}} # Array of 1D ranges  (to access array elements)
-        ranges::Tuple{Vararg{AbstractVector, dim}} # Array of 1D ranges in real units
-        ndrange::Tuple{Vararg{LazyGrids.AbstractGrid, dim}}  # Mesh-grid like object hm... several types possible here... GridSL vs GridUR
-        k_ranges::Tuple{Vararg{AbstractVector, dim}} # Array of 1D ranges in real units
-        k_ndrange::Tuple{Vararg{LazyGrids.AbstractGrid, dim}}  # Mesh-grid like object hm... several types possible here... GridSL vs GridUR
-    end 
-    function ImageInfo(
-            npnts::Tuple{Vararg{Int64, dim}}, 
-            dxs::Tuple{Vararg{Float64, dim}}, 
-            units::Tuple{Vararg{String, dim}}) where dim
-
-        dks = (2 * π) ./ (npnts .* dxs) 
-
-        index_ranges = Tuple(1:npnt for npnt in npnts)
-        # Because I always want 0,0 to be in the range I do need to distinguish odd versus even.
-        ranges = Tuple(_range_with_zero(npnt, dx) for (dx, npnt) in zip(dxs, npnts)) 
-        ndrange = LazyGrids.ndgrid(ranges...)
-        
-        k_ranges = Tuple(FFTW.fftfreq(n,  (2 * π) / dx) for (n, dx) in zip(npnts, dxs) )
-        k_ndrange = LazyGrids.ndgrid(k_ranges...)
-
-        # return ndrange
-        return ImageInfo{dim}(npnts, dxs, dks, units, index_ranges, ranges, ndrange, k_ranges, k_ndrange)
-    end
-    function ImageInfo(
-            npnts::Tuple{Vararg{Int64, dim}},
-            dxs::Tuple{Vararg{Float64, dim}}) where dim
-        units = Tuple("" for i in 1:dim)
-        return ImageInfo(npnts, dxs, units)
-    end
-    function ImageInfo(npnts::Tuple{Vararg{Int64, dim}}) where dim
-        dxs = Tuple(1.0 for i in 1:dim)
-        return ImageInfo(npnts, dxs)
-    end
-
-    """
-    A helper function that returns a range that always includes zero.  Note that I need to do an even / odd check
-    """
-    _range_with_zero(npnt::Integer, dx) = (npnt % 2 == 0 ? range(-dx*(npnt)/2, dx*(npnt-2)/2, length=npnt) : range(-dx*(npnt-1)/2, dx*(npnt-1)/2, length=npnt) )
-    
+ 
     #=
        ##      ## #### ##    ## ########   #######  ##      ##  ######
        ##  ##  ##  ##  ###   ## ##     ## ##     ## ##  ##  ## ##    ##
@@ -231,41 +180,48 @@ module ImageProcessing
 
     This is implemented with CartesianIndices math, and there may be a better way to do this
     """
-    function downsample_array(arr, factor::Int64)
+    downsample_array(arr::Missing, factor) = missing
+    function downsample_array(arr::AbstractArray{M, dim}, factor::Tuple{Vararg{Int, dim}}) where {M, dim}
 
-        if factor == 1 # No change needed of scale is 1
+        if all(factor .== 1) # No change needed of scale is 1
             return arr
-        elseif factor < 1
-            error("scale factor must be positive")
+        elseif any(factor .< 1)
+            error("scale $(factor) must be positive")
         end
-
-        array_size = size(arr)
-
-        # Check to see if the desired downsampling is possible
-        divisable = array_size .% factor
-        if any(divisable .!= 0)
-            error("array size is not divisable by downsample")
-        end
-        down_size = div.(array_size, factor)
-
+    
+        # Initilize downsampled array
+        down_size = div.(size(arr), factor)
+        array_size = down_size .* factor # size of intial array, but scaled if factor is not commensurate.
+        arr_down = zeros(M, down_size)
+    
         # Downsample
-        arr_down = zeros(eltype(arr), down_size)
-        indices = CartesianIndices(arr_down)
+    
+        # Make an array of the required ranges with steps
+        ranges = Tuple(1:skip:step for (skip, step) in zip(factor, array_size) )
+        skip_indices = CartesianIndices(ranges)
+    
+        ranges = Tuple(1:step for step in down_size )
+        final_indices = CartesianIndices(ranges)
+        
+        step_index = CartesianIndex(factor .- 1)
+    
+    
+        return _downsample_array_innerloop(arr, arr_down, final_indices, skip_indices, step_index)
+    end
 
-        I_index = oneunit(indices[1])
-        O_index = I_index .* 0
-        step_index = I_index .* (factor - 1)
+    """
+    Wrap inner loop for type stability.
+    """
+    function _downsample_array_innerloop(arr, arr_down, final_indices, skip_indices, step_index)
 
-        for i in indices
-            s = zero(eltype(arr_down))
+        for (i, i_skip) in zip(final_indices, skip_indices)
+            s = zero(eltype(arr))
             n = 0
-            for j in O_index:step_index
-                loop_index = j .+ i.*factor .- I_index .* (factor-1) # nasty looking because of zero indexing
-
-                s += arr[loop_index]
+            for j in i_skip:(i_skip .+ step_index)
+                s += arr[j]
                 n += 1
             end
-
+    
             arr_down[i] = s / n
         end
 
@@ -405,6 +361,19 @@ module ImageProcessing
         return mean, std
     end
     average_dark(darks::AbstractArray) = average_dark(convert(Array{Float64}, darks))
+
+    function average_dark(data::AbstractDataFrame, dark_key; remove=[])
+        mean = Stat.mean(data[!, dark_key])
+        std = Stat.std(data[!, dark_key]; mean=mean)
+
+        for k in remove
+            for d in data[!, k] 
+                d .-= mean
+            end
+        end
+
+        return mean, std
+    end
 
     r"""
         probe_basis(probes)
