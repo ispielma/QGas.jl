@@ -53,6 +53,8 @@ struct CameraInfo{dim}
     end
 end
 CameraInfo(sensor_size, pixel_size, magnification, downsample, units) = CameraInfo(sensor_size, pixel_size, magnification, downsample, units, Float64)
+CameraInfo(sensor_size, pixel_size, magnification, units, datatype::Type) = CameraInfo(sensor_size, pixel_size, magnification, 1, units, datatype)
+CameraInfo(sensor_size, pixel_size, magnification, units) = CameraInfo(sensor_size, pixel_size, magnification, 1, units, Float64)
 
 """
 _length_fix
@@ -126,6 +128,14 @@ function ImageInfo(info::CameraInfo)
         info.units);
 end
 
+"""
+k_ranges_lab
+
+Convert the computationally useful ranges into lab units
+"""
+k_ranges_lab(info::ImageInfo, scale) = (FFTW.fftshift(k_range) .* (scale ./ (2*pi)) for k_range in info.k_ranges) 
+k_ranges_lab(info::ImageInfo) = k_ranges_lab(info, 1)
+
 #=
 ##          ###    ########   ######   ######  ########  #### ########  ########
 ##         ## ##   ##     ## ##    ## ##    ## ##     ##  ##  ##     ##    ##
@@ -189,8 +199,9 @@ struct ImageGroup
     image_process::Function # Run after loading each image.  Can do anything, but is designed to check for bad data
     group_process::Function # Run after loading the whole image group.  Can do anything, but is designed to label the group if it contains bad data
 end
-ImageGroup(camera_info, image_process, group_process; kwargs...) = ImageGroup(Dict(k=>v for (k, v) in kwargs), camera_info, ImageInfo(camera_info), image_process, group_process)
-ImageGroup(camera_info; kwargs...) = ImageGroup(camera_info, Identity, Identity; kwargs...)
+ImageGroup(camera_info, image_info, image_process, group_process; kwargs...) = ImageGroup(Dict(k=>v for (k, v) in kwargs), camera_info, image_info, image_process, group_process)
+ImageGroup(camera_info, image_process, group_process; kwargs...) = ImageGroup(camera_info, ImageInfo(camera_info), image_process, group_process; kwargs...)
+ImageGroup(info; kwargs...) = ImageGroup(info, identity, identity; kwargs...)
 
 
 raw"""
@@ -347,9 +358,7 @@ function get_image(h5_file::HDF5.File, orientation::String, label::String, image
         throw( GenericException("Image $(image) not found in file") )
     end
 
-    data = HDF5.read(h5_file[h5path][image]) 
-
-    return convert(Array{datatype}, data)
+    return convert(Array{datatype}, HDF5.read(h5_file[h5path][image]))
 end
 function get_image(filename::String, args...)
     image = HDF5.h5open(filename, "r") do h5_file
