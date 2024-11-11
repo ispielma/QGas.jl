@@ -181,14 +181,24 @@ module ImageProcessing
     This is implemented with CartesianIndices math, and there may be a better way to do this
     """
     downsample_array(arr::Missing, factor) = missing
-    function downsample_array(arr::AbstractArray{M, dim}, factor::Tuple{Vararg{Int, dim}}) where {M, dim}
+    function downsample_array(arr::AbstractArray{M}, factor::Tuple{Vararg{Int}}) where {M}
 
-        if all(factor .== 1) # No change needed of scale is 1
+        if all(factor .== 1) # No change needed if scale is 1
             return arr
         elseif any(factor .< 1)
             error("scale $(factor) must be positive")
         end
-    
+        
+        # catch error conditions
+        if ndims(arr) < length(factor)
+            error("Dimensions of array less than downsample factor")
+        elseif  ndims(arr) > length(factor) + 1
+            error("Dimensions of array more than one larger than downsample factor")
+        elseif ndims(arr) == length(factor) + 1
+            # Assume the last dimension is a batch dimension 
+            factor = (factor..., 1)
+        end
+
         # Initilize downsampled array
         down_size = div.(size(arr), factor)
         array_size = down_size .* factor # size of intial array, but scaled if factor is not commensurate.
@@ -204,7 +214,6 @@ module ImageProcessing
         final_indices = CartesianIndices(ranges)
         
         step_index = CartesianIndex(factor .- 1)
-    
     
         return _downsample_array_innerloop(arr, arr_down, final_indices, skip_indices, step_index)
     end
@@ -254,15 +263,23 @@ module ImageProcessing
     end
 
     """
-    I think that "bad" is equal to 1 where the data is good!
+        fix_bad!
+
+    data : AbstractArray of data to be healed
+    good : AbstractArray, assumed that 0.0 marks bad points and 1.0 marks good points
+
+    pad : do we 2xpad the data before healing?  We are using FFT based filters, this will 
+        eliminate wrap-around artifacts.
     """
-    function fix_bad!(data, bad, filter; pad=true)
+    # TODO: change pad to be a positive integer that defines the extent of padding
+    # TODO: remove use of filter struct and just make window an argument. 
+    function fix_bad!(data, good, filter; pad=true)
 
         initial_size = size(data)
     
         if pad
             pad_data = PaddedViews.PaddedView(0, data, initial_size .* 2)
-            pad_bad = PaddedViews.PaddedView(0, bad, initial_size .* 2)
+            pad_good = PaddedViews.PaddedView(0, good, initial_size .* 2)
     
             # This one needs padded in such a way that FFTshift will work
             pad_filter = PaddedViews.PaddedView(
@@ -273,18 +290,19 @@ module ImageProcessing
             )
         else
             pad_data = data
-            pad_bad = bad
+            pad_good = good
             pad_filter = filter
         end
     
-        smooth = conv_with_weights(pad_data, pad_bad, FFTW.fftshift(pad_filter))
+        smooth = conv_with_weights(pad_data, pad_good, FFTW.fftshift(pad_filter))
     
+        # truncate to the initial size.  TODO: this code assumes a 2D image.
         if pad
-            smooth = smooth[1:initial_size[1], 1:initial_size[2]]
+            smooth = @view smooth[1:initial_size[1], 1:initial_size[2]]
         end
     
         # got the desired smoothed array!
-        data .= data .* bad + smooth .* (1 .- bad)
+        data .= data .* good .+ smooth .* (1 .- good)
     end
 
     function PSD(Field; shift=false)
