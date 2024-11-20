@@ -56,6 +56,9 @@ CameraInfo(sensor_size, pixel_size, magnification, downsample, units) = CameraIn
 CameraInfo(sensor_size, pixel_size, magnification, units, datatype::Type) = CameraInfo(sensor_size, pixel_size, magnification, 1, units, datatype)
 CameraInfo(sensor_size, pixel_size, magnification, units) = CameraInfo(sensor_size, pixel_size, magnification, 1, units, Float64)
 
+# This is designed for when we crop
+CameraInfo(camera_info::CameraInfo, sensor_size) = CameraInfo(sensor_size .* camera_info.downsample, camera_info.pixel_size, camera_info.magnification, camera_info.downsample, camera_info.units, camera_info.datatype)
+
 """
 _length_fix
 
@@ -136,6 +139,11 @@ Convert the computationally useful ranges into lab units
 k_ranges_lab(info::ImageInfo, scale) = (FFTW.fftshift(k_range) .* (scale ./ (2*pi)) for k_range in info.k_ranges) 
 k_ranges_lab(info::ImageInfo) = k_ranges_lab(info, 1)
 
+"""
+find the index associated with a set of coordinates
+"""
+index_from_coords(info::ImageInfo, coords) = Tuple(argmin( (range .- coord).^2) for (coord, range) in zip(coords, info.ranges))
+
 #=
 ##          ###    ########   ######   ######  ########  #### ########  ########
 ##         ## ##   ##     ## ##    ## ##    ## ##     ##  ##  ##     ##    ##
@@ -152,13 +160,15 @@ struct LabscriptConfig
     filename_prefix_format::String
     extension::String
     file_fstring::String
+    extra_fstring::Dict{Symbol, String}
 end 
-LabscriptConfig(experiment_shot_storage, output_folder_format, filename_prefix_format; extension=".h5") = LabscriptConfig(
+LabscriptConfig(experiment_shot_storage, output_folder_format, filename_prefix_format; extension=".h5", kwargs...) = LabscriptConfig(
     experiment_shot_storage, 
     output_folder_format, 
     filename_prefix_format,
     extension, 
-    labscript_file_fstring(experiment_shot_storage, output_folder_format, filename_prefix_format; extension=extension)
+    labscript_file_fstring(experiment_shot_storage, output_folder_format, filename_prefix_format; extension=extension),
+    Dict(k => labscript_file_fstring(v; extension="") for (k, v) in kwargs)
 )
 
 """
@@ -175,6 +185,8 @@ struct LabscriptSequence
     shots::Vector{Int}
 end 
 # LabscriptSequence(script_basename, year, month, day, index, shots) = LabscriptSequence(script_basename, year, month, day, index, Vector(shots))
+Base.String(seq::LabscriptSequence) = "$(seq.script_basename)_$(seq.shots[1])...$(seq.shots[end])"
+Base.show(io::IO, seq::LabscriptSequence) = print(io, String(seq))
 
 """
     LabscriptImage
@@ -199,7 +211,9 @@ struct ImageGroup
     image_process::Function # Run after loading each image.  Can do anything, but is designed to check for bad data
     group_process::Function # Run after loading the whole image group.  Can do anything, but is designed to label the group if it contains bad data
 end
-ImageGroup(camera_info, image_info, image_process, group_process; kwargs...) = ImageGroup(Dict(k=>v for (k, v) in kwargs), camera_info, image_info, image_process, group_process)
+ImageGroup(camera_info::CameraInfo, image_info::ImageInfo, image_process::Function, group_process::Function; kwargs...) = ImageGroup(Dict(k=>v for (k, v) in kwargs), camera_info, image_info, image_process, group_process)
+ImageGroup(camera_info::CameraInfo, image_info::ImageInfo; kwargs...) = ImageGroup(camera_info, image_info, identity, identity; kwargs...)
+
 ImageGroup(camera_info, image_process, group_process; kwargs...) = ImageGroup(camera_info, ImageInfo(camera_info), image_process, group_process; kwargs...)
 ImageGroup(info; kwargs...) = ImageGroup(info, identity, identity; kwargs...)
 
@@ -242,12 +256,7 @@ Here we will use a slightly different format based on the python f-string.  For 
     sequence_index = 10
     shot=66
 """
-function labscript_file_fstring(
-    experiment_shot_storage::String,
-    output_folder_format::String,
-    filename_prefix_format::String;
-    extension::String=".h5"
-    )
+function labscript_file_fstring(args...; extension::String=".h5")
 
     ks = (
         "script_basename",
@@ -258,13 +267,16 @@ function labscript_file_fstring(
         "shot"
     )
 
-    experiment_shot_storage = _fstring_key_to_index(experiment_shot_storage, 0, ks)
+    file_fstring = ""
 
-    output_folder_format = _fstring_key_to_index(output_folder_format, 0, ks)
+    for arg in args[1:end-1]
+        arg_string = _fstring_key_to_index(arg, 0, ks)
+        file_fstring *= "$(arg_string)/"
+    end
+    arg_string = _fstring_key_to_index(args[end], 0, ks)
+    file_fstring *= "$(arg_string)$(extension)"
 
-    filename_prefix_format = _fstring_key_to_index(filename_prefix_format, 0, ks)
-
-    return "$(experiment_shot_storage)/$(output_folder_format)/$(filename_prefix_format)$(extension)"
+    return file_fstring
 end
 
 """
@@ -289,6 +301,20 @@ function _fstring_key_to_index(s::String, n_args::Int, ks)
 end
 
 """
+labscript_file_name
+
+generate a single labscript file from a f-string
+"""
+labscript_file_name(file_fstring, sequence::LabscriptSequence, args...) = Format.format(
+    file_fstring, 
+    sequence.script_basename, 
+    sequence.year,
+    sequence.month,
+    sequence.day,
+    sequence.index,
+    args...)
+
+"""
 file_name_array : this function returns an array of files that should be evaulated
     Takes as parameters a list of DataFile structs
     with keyword parameters
@@ -302,16 +328,8 @@ function file_name_array(sequences::Vector{LabscriptSequence}, labconfig::Labscr
     filelist = Array{String}(undef, 0)
 
     for sequence in sequences	
-        
         # And here is the list for this element of files.  
-        newfiles = [Format.format(
-            labconfig.file_fstring, 
-            sequence.script_basename, 
-            sequence.year,
-            sequence.month,
-            sequence.day,
-            sequence.index,
-            i) for i in sequence.shots]
+        newfiles = [labscript_file_name(labconfig.file_fstring, sequence, i) for i in sequence.shots]
         append!(filelist, newfiles)
     end
     
@@ -453,5 +471,112 @@ Returns a dictionary containg the data from the h5 file
 """
 h5_to_dict(filename) = HDF5.h5open(h5_to_dict, filename, "r")
 h5_to_dict(h5ref::HDF5.H5DataStore) = read(h5ref)
+
+
+function write_dataset_compress(grp, key, data, args...; kwargs...)
+    if ndims(data) == 0
+        pop!(kwargs, :chunk, nothing)
+        pop!(kwargs, :deflate, nothing)
+    else
+        get!(kwargs, :shuffle, true)
+        get!(kwargs, :deflate, 9)
+        get!(kwargs, :chunk, FileIO.guess_chunk(data))
+    end
+
+    HDF5.write_dataset(grp, key, data, args...; kwargs...)
+end
+
+
+"""
+overwrite_dataset overwrites a dataset!
+"""
+function overwrite_dataset(f, k, args...; kwargs...)
+    if  k in  keys(f)
+        HDF5.delete_object(f,  k)
+    end
+    HDF5.write_dataset(f, k, args...; kwargs...)
+end
+
+"""
+overwrite_group overwrites a group
+"""
+function overwrite_group(f, k, args...; kwargs...)
+    if  k in  keys(f)
+        HDF5.delete_object(f,  k)
+    end
+    HDF5.create_group(f, k, args...; kwargs...)
+end
+
+"""
+This autochunking code was converted from python
+"""
+
+# Define constants similar to the Python code
+const CHUNK_BASE = 16 * 1024      # 16 KB
+const CHUNK_MIN = 8 * 1024        # 8 KB
+const CHUNK_MAX = 1024 * 1024     # 1 MB
+
+"""
+Guess an appropriate chunk layout for a dataset, given its shape and
+the size of each element in bytes. Will allocate chunks only as large
+as MAX_SIZE. Chunks are generally close to some power-of-2 fraction of
+each axis, slightly favoring bigger values for the last index.
+
+This function is a direct translation from Python to Julia.
+"""
+function guess_chunk(shape, typesize)
+
+    # For unlimited dimensions (size 0), we guess 1024
+    shape = [x != 0 ? x : 1024 for x in shape]
+
+    ndims = length(shape)
+    if ndims == 0
+        throw(ArgumentError("Chunks not allowed for scalar datasets."))
+    end
+
+    chunks = Float64.(shape)
+    if !all(isfinite.(chunks))
+        throw(ArgumentError("Illegal value in chunk tuple"))
+    end
+
+    # Determine the optimal chunk size in bytes using a PyTables-like expression.
+    # This is kept as a float.
+    dset_size = prod(chunks) * typesize
+    target_size = CHUNK_BASE * (2.0 ^ log10(dset_size / (1024.0 * 1024.0)))
+
+    if target_size > CHUNK_MAX
+        target_size = CHUNK_MAX
+    elseif target_size < CHUNK_MIN
+        target_size = CHUNK_MIN
+    end
+
+    idx = 0
+    while true
+        # Repeatedly loop over the axes, dividing them by 2. Stop when:
+        # 1a. We're smaller than the target chunk size, OR
+        # 1b. We're within 50% of the target chunk size, AND
+        # 2. The chunk is smaller than the maximum chunk size
+
+        chunk_bytes = prod(chunks) * typesize
+
+        if ((chunk_bytes < target_size || abs(chunk_bytes - target_size) / target_size < 0.5) &&
+            chunk_bytes < CHUNK_MAX)
+            break
+        end
+
+        if prod(chunks) == 1
+            break  # Element size larger than CHUNK_MAX
+        end
+
+        # Modulo indexing with 1-based indexing in Julia
+        idx_mod = mod1(idx, ndims)
+        chunks[idx_mod] = ceil(chunks[idx_mod] / 2.0)
+        idx += 1
+    end
+
+    return Tuple(Int.(chunks))
+end
+guess_chunk(data) = guess_chunk(size(data), sizeof(eltype(data)))
+
 
 end # module FileIO

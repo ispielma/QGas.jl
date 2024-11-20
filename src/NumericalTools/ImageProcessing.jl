@@ -272,8 +272,9 @@ module ImageProcessing
         eliminate wrap-around artifacts.
     """
     # TODO: change pad to be a positive integer that defines the extent of padding
-    # TODO: remove use of filter struct and just make window an argument. 
-    function fix_bad!(data, good, filter; pad=true)
+    fix_bad!(data, good, filter::WindowConfig; kwargs...) = fix_bad!(data, good, filter.window; kwargs...)
+
+    function fix_bad!(data, good, window; pad=true)
 
         initial_size = size(data)
     
@@ -282,19 +283,19 @@ module ImageProcessing
             pad_good = PaddedViews.PaddedView(0, good, initial_size .* 2)
     
             # This one needs padded in such a way that FFTshift will work
-            pad_filter = PaddedViews.PaddedView(
+            pad_window = PaddedViews.PaddedView(
                 0,
-                filter.window,
+                window,
                 initial_size .* 2,
                 initial_size .÷ 2 .+ 1
             )
         else
             pad_data = data
             pad_good = good
-            pad_filter = filter
+            pad_window = window
         end
     
-        smooth = conv_with_weights(pad_data, pad_good, FFTW.fftshift(pad_filter))
+        smooth = conv_with_weights(pad_data, pad_good, FFTW.fftshift(pad_window))
     
         # truncate to the initial size.  TODO: this code assumes a 2D image.
         if pad
@@ -401,8 +402,10 @@ module ImageProcessing
     Currently always does SVD in the way that assumes that the number of probe images is small
     as compared to the number of pixels $N$ in each images.  For the opposite approach one would
     make the covariance matrix be $N\times N$.
+
+    factors is the number of principal components to return
     """
-    function probe_basis(probes::Array{Float64})
+    function probe_basis(probes::Array{Float64}; factors::Int=0)
         probes_flat = reshape(probes, :, size(probes)[end])
 
         factor = LA.svd(probes_flat);
@@ -411,7 +414,16 @@ module ImageProcessing
         pvs = factor.S .^2
         pvs ./= sum(pvs)
 
-        return reshape(factor.U, size(probes)[1:end-1]..., :), pvs
+        # Get eigenvectors and reduce dimension
+        pcs = reshape(factor.U, size(probes)[1:end-1]..., :)
+
+        if factors > 0 && factors < size(pcs)[end]
+            slicer = Tuple(i == ndims(pcs) ? (1:factors) : Colon() for i in 1:ndims(pcs))
+            pcs = pcs[slicer...]
+            pvs = pvs[1:factors]
+        end
+
+        return pcs, pvs
     end
     probe_basis(probes::AbstractArray) = probe_basis(convert(Array{Float64}, probes))
 
