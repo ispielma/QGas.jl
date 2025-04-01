@@ -359,21 +359,21 @@ function get_image(h5_file::HDF5.File, orientation::String, label::String, image
 
     h5path = "images"
     if ~haskey(h5_file, h5path)
-        throw( KeyError("File does not contain any images") )
+        throw( ErrorException("File does not contain any images") )
     end
 
     if ~haskey(h5_file[h5path], orientation)
-        throw( KeyError("File does not contain any images with orientation $(orientation)") )
+        throw( ErrorException("File does not contain any images with orientation $(orientation)") )
     end
     h5path = h5path*"/"*orientation
 
     if ~haskey(h5_file[h5path], label) # no label is OK
-        throw( GenericException("File does not contain any images with label $(label)") )
+        throw( ErrorException("File does not contain any images with label $(label)") )
     end
     h5path = h5path*"/"*label
 
     if ~haskey(h5_file[h5path], image)
-        throw( GenericException("Image $(image) not found in file") )
+        throw( ErrorException("Image '$(image)' not found in file '$(h5_file)' in group '$h5path'") )
     end
 
     return convert(Array{datatype}, HDF5.read(h5_file[h5path][image]))
