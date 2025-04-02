@@ -389,15 +389,13 @@ end
 
 h5_file : h5 file name
 
-Args:
-    orientation (str): Orientation label for saved image.
-    label (str): Label of saved image.
-    image (str): Identifier of saved image.
+KWargs:
+    shot_process (Function): a function to run after each shot
 
 Returns:
     Dict of image arrays.
 """
-function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup})
+function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup}; shot_process::Function = identity)
     local imagedict = Dict{Symbol, Any}()
     imagedict[:file_name] = splitpath(h5_file.filename)[end]
 
@@ -415,17 +413,17 @@ function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup})
         merge!(imagedict, imagedict_group)
     end
 
-    return imagedict
+    return shot_process(h5_file, imagedict)
 end
-function get_images(filename::String, imagegroups::Vector{ImageGroup})
+function get_images(filename::String, imagegroups::Vector{ImageGroup}; kwargs...)
 
     imagedict = HDF5.h5open(filename, "r") do h5_file
-        get_images(h5_file, imagegroups)
+        get_images(h5_file, imagegroups; kwargs...)
     end
 
     return imagedict
 end
-get_images(filename, imagegroup::ImageGroup) = get_images(filename, [imagegroup])
+get_images(filename, imagegroup::ImageGroup; kwargs...) = get_images(filename, [imagegroup]; kwargs...)
 
 #=
  ######   ######## ##    ## ######## ########     ###    ##
