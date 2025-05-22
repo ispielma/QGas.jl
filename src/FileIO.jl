@@ -395,7 +395,7 @@ KWargs:
 Returns:
     Dict of image arrays.
 """
-function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup}; shot_process::Function = identity)
+function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup}; shot_process::Union{Function,Nothing} = nothing)
     local imagedict = Dict{Symbol, Any}()
     imagedict[:file_name] = splitpath(h5_file.filename)[end]
 
@@ -411,6 +411,10 @@ function get_images(h5_file::HDF5.File, imagegroups::Vector{ImageGroup}; shot_pr
         end
         imagedict_group = imagegroup.group_process(imagedict_group)
         merge!(imagedict, imagedict_group)
+    end
+
+    if shot_process === nothing
+        return imagedict
     end
 
     return shot_process(h5_file, imagedict)
