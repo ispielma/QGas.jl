@@ -8,7 +8,7 @@ Breit Rabi equation
 """
 
 module BreitRabi
-    using qgas.AtomicPhysics.AtomicConstants: μ_B_Hz_Gauss, Atom
+    using QGas.AtomicPhysics.AtomicConstants: μ_B_Hz_Gauss, Atom
     """
     breit_rabi(B, m_F, s, ΔE, I, g_J, g_I)  
 
