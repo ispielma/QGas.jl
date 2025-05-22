@@ -11,19 +11,19 @@ module AtomicConstants
 
     # ======================== GENERAL CONSTANTS ========================
 
-    μ_0 = pi * 4e-7; # magnetic constant
-    ϵ_0 = 8.854187817620389e-12; # electric constant
-    k_B = 1.3806503e-23; # electric constant
-    ħ = 1.0545717253362894e-34; # hbar,
-    c = 2.99792458e8; # Speed of light in vacuum
-    AMU = 1.660538921e-27; # Atomic Mass Unit
+    const μ_0 = pi * 4e-7; # magnetic constant
+    const ϵ_0 = 8.854187817620389e-12; # electric constant
+    const k_B = 1.3806503e-23; # electric constant
+    const ħ = 1.0545717253362894e-34; # hbar,
+    const c = 2.99792458e8; # Speed of light in vacuum
+    const AMU = 1.660538921e-27; # Atomic Mass Unit
 
-    μ_B = 9.27400968e-24; # Bohr Magneton J/Tesla
-    μ_B_Hz_Gauss = 9.27400968e-28 / (2*π*ħ); # Bohr Magneton Hz/Gauss
+    const μ_B = 9.27400968e-24; # Bohr Magneton J/Tesla
+    const μ_B_Hz_Gauss = 9.27400968e-28 / (2*π*ħ); # Bohr Magneton Hz/Gauss
 
-    a_0 = 5.2917721092e-11; # Bohr Radius
-    E_h = 4.35974434e-18; # Hartree energy
-    g_earth = 9.80665;  # Gravatational acceleration at the Earths surface
+    const a_0 = 5.2917721092e-11; # Bohr Radius
+    const E_h = 4.35974434e-18; # Hartree energy
+    const g_earth = 9.80665;  # Gravatational acceleration at the Earths surface
 
     # ==================== Atomic Transitions Info =====================
 
@@ -103,9 +103,6 @@ module AtomicConstants
     thermal de Broglie wavelength
     """
     Thermal_dB_Wavelength(at, T) = ħ*sqrt(2*npi / (at.m * k_B * T))
-
-    # Now load and process the files in DataFiles/Atoms
-
     """
     This function converts the TOML data into the atom struct
     """
@@ -143,8 +140,7 @@ module AtomicConstants
             transitions[key] = transition
         end
 
-        # Create Atom
-        atom = Atom(
+        return Atom(
             m=get(atomdict, "m", NaN)*AMU,
             g_S=get(atomdict, "g_S", NaN),
             g_L=get(atomdict, "g_L", NaN),
@@ -156,24 +152,23 @@ module AtomicConstants
             T_Boil=get(atomdict, "T_Boil", NaN),
             Vapor_A_Solid=get(atomdict, "Vapor_A_Solid", NaN),
             Vapor_A_Liquid=get(atomdict, "Vapor_A_Liquid", NaN),
-            Vapor_B_Solid=get(atomdict, "Vapor_A_Solid", NaN),
-            Vapor_B_Liquid=get(atomdict, "Vapor_A_Solid", NaN),
+            Vapor_B_Solid=get(atomdict, "Vapor_B_Solid", NaN),
+            Vapor_B_Liquid=get(atomdict, "Vapor_B_Liquid", NaN),
             states=states,
             transitions=transitions
         )
     end
 
-    let _sourcepath, _files, _atomnames, _atoms
-        _sourcepath = (@__DIR__)  * "/DataFiles/Atoms"
+    # Now load and process the files in DataFiles/Atoms/*.toml
+    const ATOMS = Dict{Symbol, Atom}()
 
-        _files = [file for file in readdir(_sourcepath) if endswith(file, ".toml")]
+    src = joinpath(@__DIR__, "DataFiles", "Atoms")
+    for file in filter(f -> endswith(f, ".toml"), readdir(src))
+        sym  = Symbol(first(splitext(file)))          # e.g. :Rb87
+        atom = _ProcessAtomTOML(TOML.parsefile(joinpath(src, file)))
 
-        _atomnames = Tuple([split(file, ".toml")[1] for file in _files])
-        _atoms = [TOML.parsefile(_sourcepath*"/"*file) for file in _files]
-
-        for (name, atom) in zip(_atomnames, _atoms)
-            eval(Meta.parse("global $name = _ProcessAtomTOML($atom)"))
-        end
+        ATOMS[sym] = atom                     # keep them in a dict if you like
+        @eval const $(sym) = $atom            #e.g.,  create `const Rb87 = atom`
     end
 
 end

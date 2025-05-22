@@ -17,6 +17,10 @@ History:
 
 module AtomicPhysics
 
+    export AtomicConstants
+    export BreitRabi
+
     include("AtomicConstants.jl")
+    include("BreitRabi.jl")
 
 end # module AtomicPhysics
