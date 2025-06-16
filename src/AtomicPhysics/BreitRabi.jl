@@ -8,7 +8,7 @@ Breit Rabi equation
 """
 
 module BreitRabi
-    using QGas.AtomicPhysics.AtomicConstants: μ_B_Hz_Gauss, Atom
+    using QGas.AtomicPhysics.AtomicConstants: μ_B_Hz_Gauss, State
     """
     breit_rabi(B, m_F, s, ΔE, I, g_J, g_I)  
 
@@ -29,10 +29,10 @@ module BreitRabi
     end
 
     """
-    breit_rabi(B, m_F, s, Atom::Atom)
+    breit_rabi(B, m_F, s, state::State)
 
     A method of breit_rabi() that takes an abstracted atom as a parameter.
     """
-    breit_rabi(B, m_F, s, atom::Atom) = breit_rabi(B, m_F, s, 2*atom.A_Gnd, atom.I, atom.g_J_Gnd, atom.g_I)
+    breit_rabi(B, m_F, s, state::State) = breit_rabi(B, m_F, s, 2*state.A, state.i, state.g_J, state.g_I)
 
 end

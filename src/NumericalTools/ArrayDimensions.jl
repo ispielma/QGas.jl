@@ -3,7 +3,7 @@
 """
     ArrayDimensions
 
-A module to deal with the basic information needed to create and mantain 
+A module to deal with the basic information needed to create and maintain 
 dimensioning information in a simple way
 
 One confusing language thing:
@@ -44,7 +44,7 @@ module ArrayDimensions
     Base.@kwdef mutable struct Dimension
         x0::Float64 = 0.0
         dx::Float64 = 1.0
-        npnts::Int64 = 0.0
+        npnts::Int64 = 0
         unit::String = ""
         symmetric::Bool = false
         periodic::Bool = false
@@ -138,7 +138,7 @@ module ArrayDimensions
     """
     Deltas(adims::Dimensions)
 
-    returns an arrray of the dx values in the array
+    returns an array of the dx values in the array
     """
     function Deltas(adims::Dimensions)
         return [d.dx for d in adims.dims]
@@ -238,7 +238,7 @@ module ArrayDimensions
         return reshape(arr, size(arr)...)
     end
 
-    # I am not making the range arrays functioin because "apparently" it is not needed in
+    # I am not making the range arrays function because "apparently" it is not needed in
     # julia.  I will see.
 
     #
@@ -379,8 +379,8 @@ module ArrayDimensions
     """
         function IndexToCoords(adims::Dimensions, Index::<:Integer; Values=False)
 
-    Given the index for a point in a vector, return the integer index along all dimensionsed directions 
-    from that index.  Depening on how this is used, I might want to just used the overloaded CartesianIndices
+    Given the index for a point in a vector, return the integer index along all dimensions directions 
+    from that index.  Depending on how this is used, I might want to just used the overloaded CartesianIndices
     that I have introduced
     """
     function IndexToCoords(adims::Dimensions, Index::Integer)
@@ -403,7 +403,7 @@ module ArrayDimensions
     """
         NDRange
     
-    A multidimensional range interator with behavior similar to meshgrid.  This is almost implemented
+    A multidimensional range iterator with behavior similar to meshgrid.  This is almost implemented
     by Base.product, but this is not a subtype of AbstractArray, so it does not behave as one would expect
     """
     struct NDRange{dim} <: AbstractArray{Any, dim}

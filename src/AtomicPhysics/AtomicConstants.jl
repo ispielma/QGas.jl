@@ -33,9 +33,13 @@ module AtomicConstants
 
         l::Float64=NaN # orbital angular momentum
         s::Float64=NaN # spin angular momentum
-        j::Float64=NaN # Total angular momentum
-
+        j::Float64=NaN # combined angular momentum
+        
         g_J::Float64=NaN # Lande g-factor
+
+        # These are convenance fields that are common for all states.
+        i::Float64=NaN # nuclear angular momentum
+        g_I::Float64=NaN # Nuclear g-factor
     end
 
     Base.@kwdef mutable struct Transition # Properties of a specific transitions
@@ -49,9 +53,9 @@ module AtomicConstants
 
     Base.@kwdef struct Atom
         m::Float64=NaN # Atomic Mass
-        i::Float64=NaN # Nuclear magnetic moment
+        i::Float64=NaN # nuclear angular momentum
         
-        # Lande g-factors
+        # g-factors
         g_S::Float64=NaN
         g_L::Float64=NaN
         g_I::Float64=NaN
@@ -81,7 +85,7 @@ module AtomicConstants
     """
     Single Photon Recoil energy
     """
-    Er(at, λ) = ħ^2 * (2*π / λ^2) / (2*at.m)
+    Er(at, λ) = ħ^2 * (2*π / λ)^2 / (2*at.m)
 
     """
     Single Photon Recoil energy in Hz
@@ -118,7 +122,9 @@ module AtomicConstants
                 l=get(value, "l", 0),
                 s=get(value, "s", 0),
                 j=get(value, "j", 0),
-                g_J=get(value, "g_J", 0)
+                g_J=get(value, "g_J", 0),
+                i=get(atomdict, "i", 0),
+                g_I=get(atomdict, "g_I", 0)
             )
             states[key] = state
         end
