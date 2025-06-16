@@ -30,6 +30,9 @@ index i, return the (x,y,z,...) coordinates associated with it and the reverse.
 """
 module ArrayDimensions
 
+    _VectorOrTuple{T} = Union{Vector{T},Tuple{T}}
+
+
     # Import the functions that I plan to extend
     import Base: ndims, size, length, copy, reshape, getindex, setindex!, show, +, *, /, ^
     import Base: CartesianIndices, LinearIndices
@@ -39,7 +42,10 @@ module ArrayDimensions
 
     defines the dimensional properties of an axis of an N-dimensional array
     """ 
-    Base.@kwdef mutable struct Dimension
+
+    abstract type AbstractDimension end
+
+    Base.@kwdef mutable struct Dimension <: AbstractDimension
         x0::Float64 = 0.0
         dx::Float64 = 1.0
         npnts::Int64 = 0
@@ -48,14 +54,13 @@ module ArrayDimensions
         periodic::Bool = false
     end 
 
-    Base.@kwdef mutable struct Dimensions
-        dims::Vector{Dimension} = Dimension[]
+    mutable struct Dimensions
+        dims::Vector{AbstractDimension}
     end
+    Dimensions() = Dimensions(AbstractDimension[])
     Dimensions(arr::AbstractArray) = update_from_array(arr)
     Dimensions(adims::Dimensions) = copy(adims)
-    Dimensions(ndims::Integer; x0=0.0, dx=1.0, symmetric=false, periodic=periodic) = [Dimension(;x0=x0, dx=dx, symmetric=symmetric, periodic=periodic) for j in 1:ndims] 
-
-    _VectorOrTuple{T} = Union{Vector{T},Tuple{T}}
+    Dimensions(adim::AbstractDimension) = Dimensions([adim])
 
     # #############################################################################
     #
@@ -68,14 +73,14 @@ module ArrayDimensions
 
     new method for builtin copy
     """
-    copy(adims::Dimensions) = Dimensions( dims=copy(adims.dims) )
+    copy(adims::Dimensions) = Dimensions( copy(adims.dims) )
 
     """
     ndims
 
     new method for builtin ndims, returns dimension of the object
     """
-    ndims(adims::Dimensions) =length(adims.dims)
+    ndims(adims::Dimensions) = length(adims.dims)
 
     """
     size
@@ -113,35 +118,18 @@ module ArrayDimensions
     # #############################################################################
 
     """
-        Deltas(adims::Dimensions)
+        deltas(adims::Dimensions)
 
     returns an array of the dx values in the array
     """
     deltas(adims::Dimensions) = [d.dx for d in adims.dims]
 
     """
-        DeltasProd(adims::Dimensions)
+        deltas_prod(adims::Dimensions)
 
     returns the product of the dx values in the array.  Usually this is for an integration measure
     """
     deltas_prod(adims::Dimensions) = prod(Deltas(adims))
-
-    """
-        update_from_dims!(adims::Dimensions, dims::Dimension)
-
-    Update dimensions from dims to have the correct size
-    """
-    function update_from_dims!(adims::Dimensions, dims::Dimension)
-        adims.dims = copy(dims)
-        return adims
-    end
-
-    """
-        update_from_array(arr::AbstractArray)
-
-    Update dimensions from array to have the correct size based on a template array
-    """
-    update_from_array(arr::AbstractArray) = [Dimension(;npnts=x) for x in size(arr)]
 
     """
         update_from_array!(adims::Dimensions, arr::AbstractArray)
@@ -150,7 +138,14 @@ module ArrayDimensions
     """
     function update_from_array!(adims::Dimensions, arr::AbstractArray)
 
-        adims.dims = update_from_array(arr)
+        if size(arr) != size(adims)
+            error("array size $(size(arr)) does not match dimensions size $(size(adims))")
+        end
+
+        for i in eachindex(adims.dims)
+            adims.dims[i].npnts = size(arr, i)
+        end
+
         return adims
     end
 
