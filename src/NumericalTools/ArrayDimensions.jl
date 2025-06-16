@@ -1,5 +1,3 @@
-# I think that most of this is not actually needed in julia and the simple NDRange I created
-# will do all these jobs (given linear indexing)
 """
     ArrayDimensions
 
@@ -77,57 +75,43 @@ module ArrayDimensions
 
     new method for builtin copy
     """
-    function copy(adims::Dimensions)
-        return Dimensions( dims=copy(adims.dims) )
-    end
+    copy(adims::Dimensions) = Dimensions( dims=copy(adims.dims) )
 
     """
     ndims
 
     new method for builtin ndims, returns dimension of the object
     """
-    function ndims(adims::Dimensions)
-        return length(adims.dims)
-    end
+    ndims(adims::Dimensions) =length(adims.dims)
 
     """
     size
 
     new method for builtin size, returns array of sizes for each axis
     """
-    function size(adims::Dimensions)
-        return tuple([d.npnts for d in adims.dims]...)
-    end
-    size(adims::Dimensions, d) = adims.dims[d::Integer]
+    size(adims::Dimensions) = tuple([d.npnts for d in adims.dims]...)
+    size(adims::Dimensions, d::Integer) = adims.dims[d]
 
     """
     length(adims::Dimensions)
 
     new method for builtin length, returns total number of elements associated with the Dimensions
     """
-    function length(adims::Dimensions)
-        return prod(size(adims))
-    end   
+    length(adims::Dimensions) = prod(size(adims))
 
     """
-        function LinearIndices(adims::Dimensions)
+        LinearIndices(adims::Dimensions)
 
     new method for builtin LinearIndices for Dimensions type
     """
-    function LinearIndices(adims::Dimensions)
-
-        return LinearIndices(CoordRanges(adims))
-    end
+    LinearIndices(adims::Dimensions) = LinearIndices(CoordRanges(adims))
 
     """
-        function CartesianIndices(adims::Dimensions)
+        CartesianIndices(adims::Dimensions)
 
     new method for builtin CartesianIndices for Dimensions type
     """
-    function CartesianIndices(adims::Dimensions)
-
-        return CartesianIndices(CoordRanges(adims))
-    end
+    CartesianIndices(adims::Dimensions) =CartesianIndices(CoordRanges(adims))
 
     # #############################################################################
     #
@@ -136,82 +120,71 @@ module ArrayDimensions
     # #############################################################################
 
     """
-    Deltas(adims::Dimensions)
+        Deltas(adims::Dimensions)
 
     returns an array of the dx values in the array
     """
-    function Deltas(adims::Dimensions)
-        return [d.dx for d in adims.dims]
-    end
+    deltas(adims::Dimensions) = [d.dx for d in adims.dims]
 
     """
-    DeltasProd(adims::Dimensions)
+        DeltasProd(adims::Dimensions)
 
     returns the product of the dx values in the array.  Usually this is for an integration measure
     """
-    function DeltasProd(adims::Dimensions)
-        return prod(Deltas(adims))
-    end
+    deltas_prod(adims::Dimensions) = prod(Deltas(adims))
 
     """
-    UpdateFromDims!(adims::Dimensions, dims::Dimension)
+        update_from_dims!(adims::Dimensions, dims::Dimension)
 
     Update dimensions from dims to have the correct size
     """
-    function UpdateFromDims!(adims::Dimensions,  dims::Dimension)
-
+    function update_from_dims!(adims::Dimensions, dims::Dimension)
         adims.dims = copy(dims)
         return adims
     end
 
     """
-    UpdateFromArray(arr::AbstractArray)
+        update_from_array(arr::AbstractArray)
 
     Update dimensions from array to have the correct size based on a template array
     """
-    function UpdateFromArray(arr::AbstractArray)
-        return [Dimension(;npnts=x) for x in size(arr)]
-    end
+    update_from_array(arr::AbstractArray) = [Dimension(;npnts=x) for x in size(arr)]
 
     """
-    UpdateFromArray!(adims::Dimensions, arr::AbstractArray)
+        update_from_array!(adims::Dimensions, arr::AbstractArray)
 
     Update dimensions from array to have the correct size
     """
-    function UpdateFromArray!(adims::Dimensions, arr::AbstractArray)
+    function update_from_array!(adims::Dimensions, arr::AbstractArray)
 
-        adims.dims = UpdateFromArray(arr)
+        adims.dims = update_from_array(arr)
         return adims
     end
 
     """
-    ValueRanges(adims::Dimensions)
+        value_ranges(adims::Dimensions)
 
     ranges of coordinate values for each axes
     """
-    function ValueRanges(adims::Dimensions)
-        return tuple(range(dim.x0, dim.x0+dim.dx*(dim.npnts-1), step=dim.dx) for dim in adims.dims)
-    end
+    value_ranges(adims::Dimensions) = tuple(range(dim.x0, dim.x0+dim.dx*(dim.npnts-1), step=dim.dx) for dim in adims.dims)
 
     """
-    CoordRanges(adims::Dimensions)
+        coord_ranges(adims::Dimensions)
 
     ranges of index vectors for each axes
     """
-    function CoordRanges(adims::Dimensions)
-        return tuple(range(1, dim.npnts) for dim in adims.dims)
-    end
+    coord_ranges(adims::Dimensions) = tuple(range(1, dim.npnts) for dim in adims.dims)
 
     #
     # Tools to reshape arrays which are described be these dimensions
     # 
     """
-        Flatten(arr::AbstractArray, adims::Dimensions)
+        flatten(arr::AbstractArray, adims::Dimensions)
 
     Returns a view to a flattened version of the passed array.  Verifies
     that the array could be described by the dimensions
     """
-    function Flatten(arr::AbstractArray, adims::Dimensions)
+    function flatten(arr::AbstractArray, adims::Dimensions)
 
         if size(arr) != size(adims)
             throw( DimensionMismatch("size of arr $(size(arr)) not equal to size of ad $(size(adims))") )
@@ -258,14 +231,13 @@ module ArrayDimensions
     end
 
     """
-    Center!(adims::Dimensions)
+        center!(adims::Dimensions)
 
     Centers the Dimensions
     """
-    function Center!(adims::Dimensions)
+    function center!(adims::Dimensions)
 
         for dim in adims.dims
-
             dim.x0 = -0.5*dim.dx * (dim.npnts-1)
         end
 
@@ -273,7 +245,7 @@ module ArrayDimensions
     end
 
     """
-        ValuesToCoords(adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
+        values_to_coords(adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
 
     returns the integer index with scaled value closest to x using
     the list of dimensions
@@ -283,7 +255,7 @@ module ArrayDimensions
         
         False directs no cropping        
     """
-    function ValuesToCoords(adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
+    function values_to_coords(adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
 
         _validcoodslength(adims, values)
 
@@ -315,12 +287,12 @@ module ArrayDimensions
     end
 
     """
-        CoordsToValues(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
+        coords_to_values(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
     returns the scaled value associated with the indices, where we 
     are finding a scaled value for each of the dimensions
     """
-    function CoordsToValues(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
+    function coords_to_values(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
         
         _validcoodslength(adims, coords)
 
@@ -328,14 +300,14 @@ module ArrayDimensions
     end
 
     """
-        ValidCoords(adims::Dimensions, coords::_VectorOrTuple{<:Integer})::Bool
+        valid_coords(adims::Dimensions, coords::_VectorOrTuple{<:Integer})::Bool
 
     Checks to see if Coords in a valid coord residing in the bounds
     defined by Dimensions
 
     If the boundary conditions are periodic, all Coords are valid.
     """
-    function ValidCoords(adims::Dimensions, coords::_VectorOrTuple{<:Integer})::Bool
+    function valid_coords(adims::Dimensions, coords::_VectorOrTuple{<:Integer})::Bool
 
         _validcoodslength(adims, coords)
 
@@ -352,13 +324,13 @@ module ArrayDimensions
     # LinearIndices
 
     """
-        CoordsToIndex(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
+        coords_to_index(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
     Given the physical coordinates a point in a vector,
     return the vector index associated with this using
     the information provided in Dimensions
     """
-    function CoordsToIndex(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
+    function coords_to_index(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
         _validcoodslength(adims, coords)
         
@@ -377,16 +349,13 @@ module ArrayDimensions
         return LinearIndices(adims)[coordsperiodic...] 
     end
     """
-        function IndexToCoords(adims::Dimensions, Index::<:Integer; Values=False)
+        index_to_coords(adims::Dimensions, Index::<:Integer; Values=False)
 
     Given the index for a point in a vector, return the integer index along all dimensions directions 
     from that index.  Depending on how this is used, I might want to just used the overloaded CartesianIndices
     that I have introduced
     """
-    function IndexToCoords(adims::Dimensions, Index::Integer)
-        return Tuple(CartesianIndices(adims)[Index])
-    end
-
+    index_to_coords(adims::Dimensions, Index::Integer) = Tuple(CartesianIndices(adims)[Index])
 
     # #############################################################################
     #
