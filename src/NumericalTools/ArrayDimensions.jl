@@ -51,16 +51,9 @@ module ArrayDimensions
     Base.@kwdef mutable struct Dimensions
         dims::Vector{Dimension} = Dimension[]
     end
-    function Dimensions(arr::AbstractArray)
-        adims = Dimensions()
-        return UpdateFromArray!(adims, arr)
-    end
-    function Dimensions(adims::Dimensions)
-        return copy(adims)
-    end
-    function Dimensions(ndims::Integer; x0=0.0, dx=1.0, symmetric=false, periodic=periodic)
-        return [Dimension(;x0=x0, dx=dx, symmetric=symmetric, periodic=periodic) for j in 1:ndims] 
-    end
+    Dimensions(arr::AbstractArray) = update_from_array(arr)
+    Dimensions(adims::Dimensions) = copy(adims)
+    Dimensions(ndims::Integer; x0=0.0, dx=1.0, symmetric=false, periodic=periodic) = [Dimension(;x0=x0, dx=dx, symmetric=symmetric, periodic=periodic) for j in 1:ndims] 
 
     _VectorOrTuple{T} = Union{Vector{T},Tuple{T}}
 
