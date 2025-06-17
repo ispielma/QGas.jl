@@ -324,18 +324,10 @@ module ArrayDimensions
         d = _validcoodslength(adims, coords)
         
         # perform wrap-around for parodic boundary conditions case
-        coordsperiodic = zeros(Int, d)
-        for i in 1:d
-            r = Base.OneTo(adims.dimsArray[i])
-            if adims.dims[i].periodic
-                coordsperiodic[i] = mod(coords[i], Base.OneTo(adims.dimsArray[i]))
-            end
-        end
-
-        coordsperiodic = [(dim.periodic ? mod(coord, Base.OneTo(dim.npnts)) : coord) 
+        coords = [(dim.periodic ? mod(coord, Base.OneTo(dim.npnts)) : coord) 
                             for (coord, dim) in zip(coords, adims.dims)]
 
-        return LinearIndices(adims)[coordsperiodic...] 
+        return LinearIndices(adims)[coords...] 
     end
     """
         index_to_coords(adims::Dimensions, Index::<:Integer; Values=False)
