@@ -321,7 +321,7 @@ module ArrayDimensions
     """
     function coords_to_index(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
-        d = _validcoodslength(adims, coords)
+        _validcoodslength(adims, coords)
         
         # perform wrap-around for parodic boundary conditions case
         coords = [(dim.periodic ? mod(coord, Base.OneTo(dim.npnts)) : coord) 
