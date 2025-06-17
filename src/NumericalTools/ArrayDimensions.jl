@@ -324,8 +324,7 @@ module ArrayDimensions
         _validcoodslength(adims, coords)
         
         # perform wrap-around for parodic boundary conditions case
-        coords = [(dim.periodic ? mod(coord, Base.OneTo(dim.npnts)) : coord) 
-                            for (coord, dim) in zip(coords, adims.dims)]
+        coords = [(dim.periodic ? mod(coord, Base.OneTo(dim.npnts)) : coord) for (coord, dim) in zip(coords, adims.dims)]
 
         return LinearIndices(adims)[coords...] 
     end
