@@ -34,7 +34,9 @@ module ArrayDimensions
 
     # Import the functions that I plan to add methods to
     import Base: ndims, size, length, copy, reshape, getindex, setindex!, show, +, *, /, ^
-    import Base: CartesianIndices, LinearIndices
+    import Base: CartesianIndices, LinearIndices, convert
+
+    convert(::Type{Vector}, a::Tuple) = [x for x in a]
 
     """
     Dimension
@@ -59,6 +61,8 @@ module ArrayDimensions
     Dimensions() = Dimensions(AbstractDimension[])
     Dimensions(adims::Dimensions) = copy(adims)
     Dimensions(adims::NTuple{N, AbstractDimension}) where N = Dimensions(collect(adims))
+    Dimensions(adims::AbstractVector{AbstractDimension}) = Dimensions(collect(adims))
+
     Dimensions(adims::AbstractDimension...) = Dimensions(adims)
     Dimensions(adim::AbstractDimension) = Dimensions([adim])
 
@@ -83,19 +87,27 @@ module ArrayDimensions
     ndims(adims::Dimensions) = length(adims.dims)
 
     """
-    size
+        size(adims::Dimensions)
+        size(T::Type, adims::Dimensions)
+        size(adims::Dimensions, i::Integer)
 
-    new method for builtin size, returns array of sizes for each axis
+    returns the size of an array described by dimensions.
+
+        * T::Type if present the dimensions will be stored in a contained of this type.  Default is Tuple
+        * i::Integer if present return the size of the i-th dimension.
     """
-    size(adims::Dimensions) = Tuple(d.npnts for d in adims.dims)
-    size(adims::Dimensions, d::Integer) = adims.dims[d]
+    size(::Type{Vector}, adims::Dimensions) = [d.npnts for d in adims.dims]
+    size(::Type{T}, adims::Dimensions) where T = T(size(Vector, adims))
+
+    size(adims::Dimensions) = size(Tuple, adims::Dimensions)
+    size(adims::Dimensions, i::Integer) = adims.dims[i].npnts
 
     """
         length(adims::Dimensions)
 
     new method for builtin length, returns total number of elements associated with the Dimensions
     """
-    length(adims::Dimensions) = prod(size(adims))
+    length(adims::Dimensions) = prod(size(Vector, adims)) # Vector because prod is faster
 
     """
         LinearIndices(adims::Dimensions)
@@ -119,22 +131,29 @@ module ArrayDimensions
 
     """
         deltas(adims::Dimensions)
+        deltas(T::Type, adims::Dimensions)
 
     returns an array of the dx values in the array
+
+        * T::Type if present the dx values will be stored in a contained of this type.  Default is Tuple
+
     """
-    deltas(adims::Dimensions) = [d.dx for d in adims.dims]
+    deltas(::Type{Vector}, adims::Dimensions) = [d.dx for d in adims.dims]
+    deltas(::Type{T}, adims::Dimensions) where T = T(deltas(Vector, adims))
+
+    deltas(adims::Dimensions) = deltas(Tuple, adims)
 
     """
         deltas_prod(adims::Dimensions)
 
     returns the product of the dx values in the array.  Usually this is for an integration measure.
     """
-    deltas_prod(adims::Dimensions) = prod(Deltas(adims))
+    deltas_prod(adims::Dimensions) = prod(deltas(Vector, adims))
 
     """
         update_from_array!(adims::Dimensions, arr::AbstractArray)
 
-    Update dimensions from array to have the correct size
+    Update dimensions to have the correct size based based on the array
     """
     function update_from_array!(adims::Dimensions, arr::AbstractArray)
 
@@ -151,17 +170,29 @@ module ArrayDimensions
 
     """
         value_ranges(adims::Dimensions)
+        value_ranges(T::Type, adims::Dimensions)
 
     ranges of coordinate values for each axes
+
+        * T::Type if present the values will be stored in a contained of this type.  Default is Tuple
+
     """
-    value_ranges(adims::Dimensions) = Tuple(range(dim.x0, dim.x0+dim.dx*(dim.npnts-1), step=dim.dx) for dim in adims.dims)
+    value_ranges(::Type{Vector}, adims::Dimensions) = [range(dim.x0, dim.x0+dim.dx*(dim.npnts-1), step=dim.dx) for dim in adims.dims]
+    value_ranges(::Type{T}, adims::Dimensions) where T = T(value_ranges(Vector, adims))
+    value_ranges(adims::Dimensions) = value_ranges(Tuple, adims)
 
     """
         coord_ranges(adims::Dimensions)
+        coord_ranges(T::Type, adims::Dimensions)
 
     ranges of index vectors for each axes
+
+        * T::Type if present the values will be stored in a contained of this type.  Default is Tuple
+
     """
-    coord_ranges(adims::Dimensions) = Tuple(range(1, dim.npnts) for dim in adims.dims)
+    coord_ranges(::Type{Vector}, adims::Dimensions) = [range(1, dim.npnts) for dim in adims.dims]
+    coord_ranges(::Type{T}, adims::Dimensions) where T = T(coord_ranges(Vector, adims))
+    coord_ranges(adims::Dimensions) = coord_ranges(Tuple, adims)
 
     #
     # Tools to reshape arrays which are described be these dimensions
@@ -186,8 +217,7 @@ module ArrayDimensions
         reshape(arr::AbstractArray, adims::Dimensions)
 
     Returns a view to the passed array reshaped in accordance with the
-    dimensions.  Verifies that the array could be described by the
-    dimensions.
+    dimensions.  Verifies that the array could be described by the dimensions.
     """
     function reshape(arr::AbstractArray, adims::Dimensions)
 
@@ -196,7 +226,7 @@ module ArrayDimensions
             throw( DimensionMismatch(msg) )
         end
             
-        return reshape(arr, size(arr)...)
+        return reshape(arr, size(adims)...)
     end
 
     #    
@@ -204,11 +234,11 @@ module ArrayDimensions
     # 
 
     """
-        _validcoodslength(adims::Dimensions, values::_VectorOrTuple{<:Any})
+        valid_coods_length(adims::Dimensions, values::_VectorOrTuple{<:Any})
 
-    helper function raises an error if the number of coords is not consistent with an Dimensions
+    helper function raises an error if the number of coords is not consistent with Dimensions
     """
-    function _validcoodslength(adims::Dimensions, values::_VectorOrTuple{<:Any})
+    function valid_coods_length(adims::Dimensions, values::_VectorOrTuple{<:Any})
         d = ndims(adims)
         if length(values) != d
             msg = "values/coords length = $(length(values)) must match the number of dimensions = $(d)"
@@ -246,7 +276,7 @@ module ArrayDimensions
 
         if crop
             if dim.periodic
-                coord = mod(cord, dim.npnts)
+                coord = mod(coord, dim.npnts)
             else
                 if coord < 0
                     coord = 0
@@ -261,35 +291,47 @@ module ArrayDimensions
 
     """
         values_to_coords(adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
+        values_to_coords(T::Type, adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
 
     returns the integer index with scaled value closest to x using
     the list of dimensions
     
-    crop:
-        true : crop the return to the range `[1, npnts]` or wrap-around for periodic axes.
-        
-        false : no cropping or wrapping.
+        * crop:
+            true : crop the return to the range `[1, npnts]`
+            false : no cropping or wrapping.
+
+        * T::Type if present the values will be stored in a contained of this type.  Default is Tuple
     """
-    function values_to_coords(adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
+    function values_to_coords(::Type{Vector}, adims::Dimensions, values::_VectorOrTuple{<:Number}; crop=true)
 
-        _validcoodslength(adims, values)
+        valid_coods_length(adims, values)
 
-        return Tuple(_values_to_coords_inner(dim, value, crop) for (value, dim) in zip(values, adims.dims) )
+        return [_values_to_coords_inner(dim, value, crop) for (value, dim) in zip(values, adims.dims)]
     end
+    values_to_coords(::Type{T}, adims::Dimensions, values::_VectorOrTuple{<:Number}; kwargs...) where  T = T(values_to_coords(Vector, adims, values; kwargs...))
+
+    values_to_coords(adims, values; kwargs...) = values_to_coords(Tuple, adims, values; kwargs...)
 
     """
         coords_to_values(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
+        coords_to_values(T::Type, adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
     returns the scaled value associated with the i,j,k, ... coords, where we 
     are finding a scaled value for each of the dimensions
+
+        * T::Type if present the values will be stored in a contained of this type.  Default is Tuple
+
     """
-    function coords_to_values(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
+    function coords_to_values(::Type{Vector}, adims::Dimensions, coords::_VectorOrTuple{<:Integer})
         
-        _validcoodslength(adims, coords)
+        valid_coods_length(adims, coords)
 
         # Julia has 1-based indexing
-        return Tuple(dim.x0 .+ dim.dx .* (coord-1) for (dim, coord) in zip(adims.dims, coords))
+        return [dim.x0 .+ dim.dx .* (coord-1) for (dim, coord) in zip(adims.dims, coords)]
     end
+    coords_to_values(::Type{T}, adims::Dimensions, coords::_VectorOrTuple{<:Integer}) where T = T(coords_to_values(Vector, adims, coords))
+
+    coords_to_values(adims, coords) = coords_to_values(Tuple, adims, coords)
 
     """
         valid_coords(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
@@ -298,10 +340,11 @@ module ArrayDimensions
     defined by Dimensions
 
     If the boundary conditions are periodic, all coords are valid.
+
     """
     function valid_coords(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
-        _validcoodslength(adims, coords)
+        valid_coods_length(adims, coords)
 
         for (dim, coord) in zip(adims.dims, coords)
 
@@ -316,12 +359,11 @@ module ArrayDimensions
     """
         coords_to_index(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
-    Given the physical i,j,k, ... coordinates,
-    return the 1D index associated with this
+    Given the physical i,j,k, ... coordinates, return the 1D index associated with this.
     """
     function coords_to_index(adims::Dimensions, coords::_VectorOrTuple{<:Integer})
 
-        _validcoodslength(adims, coords)
+        valid_coods_length(adims, coords)
         
         # perform wrap-around for parodic boundary conditions case
         coords = [(dim.periodic ? mod(coord, Base.OneTo(dim.npnts)) : coord) for (coord, dim) in zip(coords, adims.dims)]
@@ -329,24 +371,43 @@ module ArrayDimensions
         return LinearIndices(adims)[coords...] 
     end
     """
-        index_to_coords(adims::Dimensions, Index::<:Integer; Values=False)
+        index_to_coords(adims::Dimensions, i::Integer; Values=False)
+        index_to_coords(T::Type, adims::Dimensions, Index::<:Integer; Values=False)
 
     Given the index for a point in a vector, return the integer index along all dimensions directions 
-    from that index.  Depending on how this is used, I might want to just used the overloaded CartesianIndices
-    that I have introduced
-    """
-    index_to_coords(adims::Dimensions) = [Tuple(coord) for coord in CartesianIndices(adims)][:]
-    index_to_coords(adims::Dimensions, i::Integer) =  Tuple(CartesianIndices(adims)[i])
+    from that index.
+
+        * i::Integer if present return only the coordinates for the i-th index.
+        * T::Type if present the coordinates will be stored in a contained of this type.  Default is Tuple.
 
     """
-        index_to_values(adims::Dimensions, Index::<:Integer; Values=False)
+    # Cannot convert CartesianIndices directly to vector
+    index_to_coords(::Type{Tuple}, adims::Dimensions) = [Tuple(coord) for coord in CartesianIndices(adims)][:] 
+    index_to_coords(::Type{Vector}, adims::Dimensions) = [convert(Vector, coord) for coord in index_to_coords(Tuple, adims)]
+    index_to_coords(::Type{T}, adims::Dimensions) where T = [T(coord) for coord in index_to_coords(Vector, adims)]
 
-    Given the index for a point in a vector, return the physical coordinates of that position
+    index_to_coords(adims::Dimensions) = index_to_coords(Tuple, adims)
+
+    index_to_coords(::Type{Tuple}, adims::Dimensions, i::Integer) =  Tuple(CartesianIndices(adims)[i])
+    index_to_coords(::Type{Vector}, adims::Dimensions, i::Integer) =  convert(Vector, index_to_coords(Tuple, adims, i))
+    index_to_coords(::Type{T}, adims::Dimensions, i::Integer) where T =  T(index_to_coords(Vector, adims, i))
+
+
+    index_to_coords(adims::Dimensions, i) =  index_to_coords(Tuple, adims, i)
+
     """
-    index_to_values(adims::Dimensions) = [coords_to_values(adims, c) for c in index_to_coords(adims)]
-    index_to_values(adims::Dimensions, i::Integer) = coords_to_values(adims, index_to_coords(adims, i))
+        index_to_values(adims::Dimensions, Index::Integer; Values=False)
 
+    Given the index for a point in a vector, return the physical coordinates of that position.
 
+        * i::Integer if present return only the values for the i-th index.
+        * T::Type if present the values will be stored in a contained of this type.  Default is Tuple.
+    """
+    index_to_values(::Type{T}, adims::Dimensions) where T = [coords_to_values(T, adims, c) for c in index_to_coords(adims)]
+    index_to_values(adims::Dimensions) = index_to_values(Tuple, adims)
+
+    index_to_values(::Type{T}, adims::Dimensions, i::Integer) where T = coords_to_values(T, adims, index_to_coords(adims, i))
+    index_to_values(adims::Dimensions, i::Integer) = index_to_values(Tuple, adims, i)
 
     # #############################################################################
     #
