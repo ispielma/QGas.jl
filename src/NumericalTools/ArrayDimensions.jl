@@ -49,7 +49,7 @@ module ArrayDimensions
     Base.@kwdef mutable struct Dimension <: AbstractDimension
         x0::Float64 = 0.0
         dx::Float64 = 1.0
-        npnts::Int64 = 0
+        npnts::Int = 0
         unit::String = ""
         symmetric::Bool = false
         periodic::Bool = false
