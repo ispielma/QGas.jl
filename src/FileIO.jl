@@ -580,5 +580,49 @@ function guess_chunk(shape, typesize)
 end
 guess_chunk(data) = guess_chunk(size(data), sizeof(eltype(data)))
 
+#=
+ ######  ##     ##  #######  ##     ## ##       ########     ########  ########    ######## ##        ######  ######## ##      ## ##     ## ######## ########  ########
+##    ## ##     ## ##     ## ##     ## ##       ##     ##    ##     ## ##          ##       ##       ##    ## ##       ##  ##  ## ##     ## ##       ##     ## ##
+##       ##     ## ##     ## ##     ## ##       ##     ##    ##     ## ##          ##       ##       ##       ##       ##  ##  ## ##     ## ##       ##     ## ##
+ ######  ######### ##     ## ##     ## ##       ##     ##    ########  ######      ######   ##        ######  ######   ##  ##  ## ######### ######   ########  ######
+      ## ##     ## ##     ## ##     ## ##       ##     ##    ##     ## ##          ##       ##             ## ##       ##  ##  ## ##     ## ##       ##   ##   ##
+##    ## ##     ## ##     ## ##     ## ##       ##     ##    ##     ## ##          ##       ##       ##    ## ##       ##  ##  ## ##     ## ##       ##    ##  ##
+ ######  ##     ##  #######   #######  ######## ########     ########  ########    ######## ########  ######  ########  ###  ###  ##     ## ######## ##     ## ########
+=#
+#
+# Pulled from the Chip lab file loaders.
+#
+
+function group_postprocess_pci(images)
+    images[:good_pci] = !any(ismissing.(values(images)))
+    return images
+end
+
+function group_postprocess_abs(images)
+    images[:good_abs] = !any(ismissing.(values(images)))
+    return images
+end
+
+"""
+initial_load
+
+This is a data loader. It returns a named tuple of data where
+each entry is a stack of 2D images.
+"""
+function initial_load(file_names::Vector, image_group_pci, image_group_abs)
+    
+    # First get data as a vector of named tuples.
+    data = [get_images(file_name, [image_group_pci, image_group_abs]) for file_name in file_names]
+
+    # Strip out clearly bad data
+    data = [d for d in data if d[:good_pci] && d[:good_abs]]
+
+    # Now re-organize into a named-tuple of stacks of images
+    nimages = length(data)
+    ks = keys(data[1])
+    rng = 1:nimages
+
+    return (NamedTuple( (k, stack([data[i][k] for i in rng]) ) for k in ks), nimages)
+end
 
 end # module FileIO
